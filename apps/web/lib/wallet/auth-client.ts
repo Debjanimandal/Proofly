@@ -8,8 +8,10 @@ export async function createWalletChallenge(address: string): Promise<{ nonce: s
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || 'Failed to create challenge.');
+    const raw = await response.text();
+    let message = 'Failed to create challenge.';
+    try { message = (JSON.parse(raw) as { error?: string }).error ?? message; } catch { message = raw || message; }
+    throw new Error(message);
   }
 
   return response.json() as Promise<{ nonce: string; message: string; expiresAt: string }>;
@@ -29,8 +31,10 @@ export async function verifyWalletChallenge(
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || 'Challenge verification failed.');
+    const raw = await response.text();
+    let message = 'Challenge verification failed.';
+    try { message = (JSON.parse(raw) as { error?: string }).error ?? message; } catch { message = raw || message; }
+    throw new Error(message);
   }
 
   return response.json() as Promise<{ sessionToken: string }>;

@@ -1,4 +1,4 @@
-﻿import { IDKitWidget } from '@worldcoin/idkit';
+﻿import { IDKitRequestWidget, orbLegacy, type IDKitErrorCodes, type IDKitResult, type RpContext } from '@worldcoin/idkit';
 import { useEffect, useState } from 'react';
 import type { Hex } from 'viem';
 import { runtimeRequest } from '../../background/client';
@@ -6,6 +6,8 @@ import { getConfiguredContracts } from '../../chain/contracts';
 import type { AgentPolicy } from '../../shared/types';
 import { useWalletStore } from '../../store/wallet';
 import {
+  attestWithServer,
+  generateLocalAttestation,
   getZkStatus,
   normalizeWorldIdResult,
   saveWorldIdProof,
@@ -18,7 +20,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 const contracts = getConfiguredContracts();
 const apiBaseUrl = import.meta.env.VITE_PROOFLY_API_BASE_URL?.replace(/\/$/, '') as string | undefined;
 
-type Tab = 'wallet' | 'policy' | 'keys' | 'id';
+type Tab = 'wallet' | 'keys' | 'id';
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
@@ -95,7 +97,6 @@ function LockIcon({ className = 'size-4' }: { className?: string }) {
 function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: 'wallet', label: 'Wallet' },
-    { id: 'policy', label: 'Policy' },
     { id: 'keys', label: 'Keys' },
     { id: 'id', label: 'ID' },
   ];
@@ -135,6 +136,17 @@ function AddressAvatar({ address }: { address: string }) {
 function WalletTab({ address, chainId }: { address: string; chainId: string | null }) {
   const [copied, setCopied] = useState(false);
   const [contractsOpen, setContractsOpen] = useState(false);
+  const [balance, setBalance] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const hex = (await runtimeRequest('eth_getBalance', [address, 'latest'])) as string;
+        const numEth = Number(BigInt(hex) * 10000n / (10n ** 18n));
+        setBalance(`${(numEth / 10000).toFixed(4)} ETH`);
+      } catch { /* extension or provider not ready */ }
+    })();
+  }, [address]);
 
   function copyAddress() {
     void navigator.clipboard.writeText(address).then(() => {
@@ -172,17 +184,35 @@ function WalletTab({ address, chainId }: { address: string; chainId: string | nu
           </button>
         </div>
 
-        {/* Network status */}
+        {/* Network + balance row */}
         <div className="mt-3.5 flex items-center justify-between border-t border-white/5 pt-3">
           <div className="flex items-center gap-2">
             <div className="size-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]" />
             <span className="text-[11px] font-medium text-subtext">{getChainName(chainId)}</span>
           </div>
-          <span className="font-mono text-[10px] text-muted">
-            id:{getChainIdDecimal(chainId)}
+          <span className="font-mono text-[11px] font-semibold text-text">
+            {balance ?? (
+              <span className="animate-pulse text-muted">—</span>
+            )}
           </span>
         </div>
       </div>
+
+      {/* Open in web */}
+      {apiBaseUrl && (
+        <a
+          href={`${apiBaseUrl}/wallet`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-surface px-4 py-2.5 text-xs font-medium text-subtext transition-all hover:border-white/20 hover:text-white"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="size-3.5" aria-hidden="true">
+            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+            <polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+          Open in Proofly Web
+        </a>
+      )}
 
       {/* Contracts accordion */}
       <div className="overflow-hidden rounded-2xl border border-border bg-surface">
@@ -368,9 +398,15 @@ function PolicyTab({ address }: { address: string }) {
 function IdentityTab({ address }: { address: string }) {
   const [zkStatus, setZkStatus] = useState<ZkStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [rpContext, setRpContext] = useState<RpContext | null>(null);
+  const [loadingRp, setLoadingRp] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attestingLocal, setAttestingLocal] = useState(false);
 
   const worldAppId = import.meta.env.VITE_WORLD_APP_ID as string;
   const worldAction = (import.meta.env.VITE_WORLD_ACTION as string) || 'proofly-human-verify';
+  const worldRpId = (import.meta.env.VITE_WORLD_RP_ID as string) || undefined;
 
   async function reload(): Promise<void> {
     setLoading(true);
@@ -380,6 +416,81 @@ function IdentityTab({ address }: { address: string }) {
   }
 
   useEffect(() => { void reload(); }, []);
+
+  async function startVerification(): Promise<void> {
+    setError(null);
+    if (!apiBaseUrl || !worldRpId) {
+      setError('Verification server not configured. Set VITE_PROOFLY_API_BASE_URL and VITE_WORLD_RP_ID.');
+      return;
+    }
+    setLoadingRp(true);
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/zk/worldid/rp-signature`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: worldAction }),
+      });
+      if (!res.ok) throw new Error('Failed to get verification signature.');
+      const { sig, nonce, created_at, expires_at } = (await res.json()) as {
+        sig: string; nonce: string; created_at: number; expires_at: number;
+      };
+      setRpContext({ rp_id: worldRpId, nonce, created_at, expires_at, signature: sig });
+      setOpen(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoadingRp(false);
+    }
+  }
+
+  async function handleVerify(result: IDKitResult): Promise<void> {
+    if (!apiBaseUrl) throw new Error('Verification server not configured.');
+    try {
+      await verifyProofWithServer(result, address as Hex, apiBaseUrl, worldRpId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Verification failed';
+      setError(msg.length > 200 ? msg.slice(0, 200) + '…' : msg);
+      setOpen(false);
+      setRpContext(null);
+      throw err;
+    }
+  }
+
+  function onIDKitError(code: IDKitErrorCodes): void {
+    setError(`World ID error (${String(code)}). Check your app credentials or try again.`);
+    setOpen(false);
+    setRpContext(null);
+  }
+
+  async function startLocalAttestation(): Promise<void> {
+    setError(null);
+    setAttestingLocal(true);
+    try {
+      const proof = await generateLocalAttestation(address as Hex, worldAction);
+      await saveWorldIdProof(proof);
+      if (apiBaseUrl) {
+        await attestWithServer(proof, apiBaseUrl);
+      }
+      await reload();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setAttestingLocal(false);
+    }
+  }
+
+  function onSuccess(result: IDKitResult): void {
+    try {
+      const normalized = normalizeWorldIdResult(result);
+      const record: StoredWorldIdProof = {
+        ...normalized,
+        action: worldAction,
+        walletAddress: address as Hex,
+        verifiedAt: Date.now(),
+      };
+      void saveWorldIdProof(record).then(() => void reload());
+    } catch { /* normalization errors are non-fatal */ }
+  }
 
   if (loading) {
     return (
@@ -406,7 +517,7 @@ function IdentityTab({ address }: { address: string }) {
               </svg>
             </div>
             <div>
-              <p className="text-sm font-semibold text-emerald-300">World ID Verified</p>
+              <p className="text-sm font-semibold text-emerald-300">Proofly Verified</p>
               <p className="text-[10px] text-emerald-600 capitalize">
                 {proof.verificationLevel ?? 'orb'} · verified {verifiedDate}
               </p>
@@ -448,44 +559,59 @@ function IdentityTab({ address }: { address: string }) {
           </div>
           <div>
             <p className="text-sm font-semibold text-white">Identity Unverified</p>
-            <p className="text-[10px] text-muted">Prove you are human with World ID.</p>
+            <p className="text-[10px] text-muted">Prove you are human with Proofly.</p>
           </div>
         </div>
 
         <p className="mb-4 text-[11px] leading-relaxed text-muted">
-          World ID is a privacy-preserving proof of personhood. Your identity stays anonymous —
+          Proofly is a privacy-preserving proof of personhood. Your identity stays anonymous —
           only a zero-knowledge proof is recorded on-chain.
         </p>
 
-        {/* @ts-expect-error — IDKit is not yet typed for React 19 */}
-        <IDKitWidget
-          action={worldAction}
-          signal={address}
-          handleVerify={async (rawProof: unknown) => {
-            if (!apiBaseUrl) throw new Error('Verification server not configured.');
-            await verifyProofWithServer(rawProof, address as Hex, apiBaseUrl);
-          }}
-          onSuccess={(rawProof: unknown) => {
-            const normalized = normalizeWorldIdResult(rawProof as never);
-            const record: StoredWorldIdProof = {
-              ...normalized,
-              action: worldAction,
-              walletAddress: address as Hex,
-              verifiedAt: Date.now(),
-            };
-            void saveWorldIdProof(record).then(() => void reload());
-          }}
+        {rpContext && (
+          <IDKitRequestWidget
+            open={open}
+            onOpenChange={setOpen}
+            app_id={worldAppId as `app_${string}`}
+            action={worldAction}
+            rp_context={rpContext}
+            allow_legacy_proofs
+            preset={orbLegacy({ signal: address })}
+            handleVerify={handleVerify}
+            onSuccess={onSuccess}
+            onError={onIDKitError}
+          />
+        )}
+
+        {error ? (
+          <p className="mb-3 rounded-xl border border-red-900/40 bg-red-950/20 px-3 py-2 text-[10px] text-red-400">
+            {error}
+          </p>
+        ) : null}
+
+        <button
+          type="button"
+          className="w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-40"
+          onClick={() => { void startVerification(); }}
+          disabled={loadingRp || attestingLocal}
         >
-          {({ open }: { open: () => void }) => (
-            <button
-              type="button"
-              className="w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition-opacity hover:opacity-90"
-              onClick={open}
-            >
-              Verify with World ID
-            </button>
-          )}
-        </IDKitWidget>
+          {loadingRp ? 'Preparing\u2026' : 'Verify with Proofly'}
+        </button>
+
+        <div className="flex items-center gap-2 py-1">
+          <div className="h-px flex-1 bg-white/10" />
+          <span className="text-[10px] text-muted">or</span>
+          <div className="h-px flex-1 bg-white/10" />
+        </div>
+
+        <button
+          type="button"
+          className="w-full rounded-xl border border-border bg-elevated px-4 py-2.5 text-xs font-semibold text-subtext transition-all hover:border-white/20 hover:text-white disabled:opacity-40"
+          onClick={() => { void startLocalAttestation(); }}
+          disabled={loadingRp || attestingLocal}
+        >
+          {attestingLocal ? 'Generating proof\u2026' : 'Prove with Wallet Key'}
+        </button>
       </div>
     </div>
   );
@@ -608,9 +734,6 @@ export function WalletHome(): JSX.Element {
 
       {activeTab === 'wallet' && address && (
         <WalletTab address={address} chainId={chainId} />
-      )}
-      {activeTab === 'policy' && address && (
-        <PolicyTab address={address} />
       )}
       {activeTab === 'keys' && (
         <KeysTab />

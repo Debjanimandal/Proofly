@@ -9,6 +9,17 @@ type AuditEvent = {
   created_at: string;
 };
 
+/** Read all local audit events persisted by client-side actions. */
+function readLocalEvents(): AuditEvent[] {
+  try {
+    const raw = localStorage.getItem('proofly.activity.log');
+    if (!raw) return [];
+    return JSON.parse(raw) as AuditEvent[];
+  } catch {
+    return [];
+  }
+}
+
 export default function RealtimeAudit(): JSX.Element {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -22,9 +33,23 @@ export default function RealtimeAudit(): JSX.Element {
         const response = await fetch('/api/activity/logs');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = (await response.json()) as { logs: AuditEvent[] };
-        if (!removed) setEvents(data.logs ?? []);
+        const serverLogs: AuditEvent[] = data.logs ?? [];
+        const localLogs = readLocalEvents();
+        // Merge: server events first, then local events not already in server set
+        const serverIds = new Set(serverLogs.map((e) => e.id));
+        const merged = [
+          ...serverLogs,
+          ...localLogs.filter((e) => !serverIds.has(e.id)),
+        ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 30);
+        if (!removed) setEvents(merged);
       } catch (fetchError) {
-        if (!removed) setError((fetchError as Error).message);
+        // Server unavailable — show only local events
+        const localLogs = readLocalEvents();
+        if (!removed) {
+          setEvents(localLogs.slice(0, 30));
+          if (localLogs.length === 0) setError((fetchError as Error).message);
+        }
       }
     }
 

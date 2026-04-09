@@ -1,7 +1,7 @@
 'use client';
 
 import { encodeFunctionData } from 'viem';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { walletRequest } from '../../lib/wallet/provider';
 import { POLICY_ABI } from '../../lib/contracts/abis';
 
@@ -50,6 +50,15 @@ export default function ProfilePage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
 
+  // Auto-restore address from prior session
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('proofly.session.address');
+      if (stored) { setAddress(stored); void loadProfile(stored); }
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function connect(): Promise<void> {
     try {
       setError(null);
@@ -57,9 +66,16 @@ export default function ProfilePage(): JSX.Element {
       const addr = accounts[0];
       if (!addr) return;
       setAddress(addr);
+      localStorage.setItem('proofly.session.address', addr);
       await loadProfile(addr);
-    } catch (err) {
-      setError((err as Error).message);
+    } catch {
+      const stored = localStorage.getItem('proofly.session.address');
+      if (stored) {
+        setAddress(stored);
+        await loadProfile(stored);
+      } else {
+        setError('Extension not found. Visit the Wallet page to connect first.');
+      }
     }
   }
 

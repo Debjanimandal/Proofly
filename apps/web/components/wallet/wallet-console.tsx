@@ -39,6 +39,13 @@ export default function WalletConsole(): React.JSX.Element {
     }
   }
 
+  function disconnect(): void {
+    setAddress(null);
+    setChainId(null);
+    setSessionToken(null);
+    setError(null);
+  }
+
   async function signIn(): Promise<void> {
     if (!address) {
       setError('Connect wallet first.');
@@ -80,29 +87,38 @@ export default function WalletConsole(): React.JSX.Element {
         </div>
       </div>
 
-      {error ? <p className="mt-3 rounded-xl border border-danger bg-black px-3 py-2 text-sm text-red-300">{error}</p> : null}
+      {error ? <p className="mt-3 rounded-xl border border-red-900/50 bg-red-950/20 px-3 py-2 text-sm text-red-300">{error}</p> : null}
 
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <button
-          className="rounded-xl bg-white px-3 py-2 text-sm font-medium text-black disabled:opacity-50"
-          onClick={() => {
-            void connect();
-          }}
-          disabled={busy}
-          type="button"
-        >
-          Connect
-        </button>
-        <button
-          className="rounded-xl border border-border bg-transparent px-3 py-2 text-sm text-text disabled:opacity-50"
-          onClick={() => {
-            void signIn();
-          }}
-          disabled={busy || !address}
-          type="button"
-        >
-          Sign In
-        </button>
+        {!address ? (
+          <button
+            className="col-span-2 rounded-xl bg-white px-3 py-2 text-sm font-medium text-black disabled:opacity-50"
+            onClick={() => { void connect(); }}
+            disabled={busy}
+            type="button"
+          >
+            Connect
+          </button>
+        ) : (
+          <>
+            <button
+              className="rounded-xl border border-border bg-transparent px-3 py-2 text-sm text-text disabled:opacity-50"
+              onClick={() => { void signIn(); }}
+              disabled={busy || Boolean(sessionToken)}
+              type="button"
+            >
+              {sessionToken ? 'Signed In' : 'Sign In'}
+            </button>
+            <button
+              className="rounded-xl border border-red-900/50 bg-transparent px-3 py-2 text-sm text-red-400 hover:bg-red-950/20 disabled:opacity-50"
+              onClick={disconnect}
+              disabled={busy}
+              type="button"
+            >
+              Disconnect
+            </button>
+          </>
+        )}
       </div>
     </section>
   );

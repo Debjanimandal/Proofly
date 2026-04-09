@@ -1,7 +1,7 @@
+﻿import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { runtimeRequest } from '../../background/client';
 import { useWalletStore } from '../../store/wallet';
-import { ErrorBanner } from '../components/ErrorBanner';
 
 function EyeIcon({ open }: { open: boolean }) {
   if (open) {
@@ -31,7 +31,14 @@ function strengthLevel(password: string): number {
 }
 
 const STRENGTH_LABELS = ['', 'Weak', 'Fair', 'Good', 'Strong'];
-const STRENGTH_COLORS = ['', 'bg-white/20', 'bg-white/35', 'bg-white/55', 'bg-white'];
+const STRENGTH_COLORS = ['', 'bg-red-500', 'bg-warning', 'bg-yellow-400', 'bg-success'];
+const STRENGTH_TEXT = ['', 'text-red-400', 'text-warning', 'text-yellow-400', 'text-success'];
+
+const features = [
+  { icon: '🔑', text: 'Keys generated locally, never leave your device' },
+  { icon: '🛡️', text: 'AES-256 encrypted with your password' },
+  { icon: '⛓️', text: 'Base blockchain — real contracts, no mocks' },
+];
 
 export function WalletSetup(): JSX.Element {
   const refresh = useWalletStore((s) => s.refresh);
@@ -41,6 +48,7 @@ export function WalletSetup(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   const strength = strengthLevel(password);
+  const canSubmit = password.length >= 8 && !busy;
 
   async function createWallet(): Promise<void> {
     setBusy(true);
@@ -57,39 +65,85 @@ export function WalletSetup(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col items-center">
-      {/* Shield mark */}
-      <div className="relative mb-5 mt-4">
-        <div className="flex size-20 items-center justify-center rounded-full border border-white/8 bg-surface">
-          <div className="flex size-14 items-center justify-center rounded-full border border-white/10 bg-elevated">
-            <svg viewBox="0 0 24 24" fill="currentColor" className="size-7 text-white/60" aria-hidden="true">
-              <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+    <div className="flex flex-col items-center pt-2">
+      {/* Shield mark with glowing ring */}
+      <motion.div
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 0.05 }}
+        className="relative mb-6 mt-3"
+      >
+        {/* Outer glow ring */}
+        <div className="absolute inset-0 -m-3 rounded-full bg-accent/10 blur-xl" />
+        <div className="relative flex size-20 items-center justify-center rounded-full border border-white/[0.06] bg-surface">
+          <div className="flex size-14 items-center justify-center rounded-full border border-accent/20 bg-gradient-to-br from-accent/15 to-purple-900/10">
+            <svg viewBox="0 0 28 28" fill="none" className="size-8" aria-hidden="true">
+              <defs>
+                <linearGradient id="setup-shield-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#818CF8" />
+                  <stop offset="100%" stopColor="#A78BFA" />
+                </linearGradient>
+              </defs>
+              <path
+                d="M14 2L4 6.5V14c0 5.8 4.2 11.2 10 12.5C19.8 25.2 24 19.8 24 14V6.5L14 2z"
+                fill="url(#setup-shield-grad)"
+                fillOpacity="0.15"
+                stroke="url(#setup-shield-grad)"
+                strokeWidth="1.25"
+                strokeLinejoin="round"
+              />
+              <polyline
+                points="9,14 12.5,17.5 19,11"
+                stroke="url(#setup-shield-grad)"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </div>
         </div>
-      </div>
+      </motion.div>
 
-      <h2 className="text-lg font-semibold tracking-tight text-white">Create Your Wallet</h2>
-      <p className="mt-1.5 px-6 text-center text-[11px] leading-relaxed text-muted">
-        Your keys never leave this device.
-        <br />
-        Encrypted locally, always in your control.
-      </p>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.22, delay: 0.1 }}
+        className="w-full text-center"
+      >
+        <h2 className="text-xl font-bold tracking-tight text-white">Create Your Wallet</h2>
+        <p className="mt-1.5 px-4 text-center text-[11px] leading-relaxed text-muted">
+          Your keys never leave this device. Encrypted locally, always in your control.
+        </p>
+      </motion.div>
 
-      <div className="mt-7 w-full space-y-3">
-        {error ? <ErrorBanner message={error} /> : null}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.22, delay: 0.15 }}
+        className="mt-6 w-full space-y-3"
+      >
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            className="overflow-hidden rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-2.5 text-xs text-red-300"
+          >
+            {error}
+          </motion.div>
+        )}
 
+        {/* Password input */}
         <div className="relative">
           <input
             // eslint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
-            className="w-full rounded-xl border border-border bg-surface px-4 py-3 pr-11 text-sm text-text outline-none transition-all placeholder:text-muted focus:border-white/20 focus:bg-elevated"
+            className="w-full rounded-xl border border-white/[0.06] bg-surface px-4 py-3 pr-12 text-sm text-text outline-none transition-all placeholder:text-muted focus:border-accent/40 focus:bg-elevated focus:ring-1 focus:ring-accent/20"
             type={showPassword ? 'text' : 'password'}
-            placeholder="Set password (min 8 chars)"
+            placeholder="Set password — min 8 characters"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && password.length >= 8) void createWallet();
+              if (e.key === 'Enter' && canSubmit) void createWallet();
             }}
           />
           <button
@@ -104,43 +158,59 @@ export function WalletSetup(): JSX.Element {
 
         {/* Strength meter */}
         {password.length > 0 && (
-          <div className="space-y-1.5">
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            className="space-y-1.5"
+          >
             <div className="flex gap-1">
               {[1, 2, 3, 4].map((level) => (
-                <div
+                <motion.div
                   key={level}
-                  className={`h-0.5 flex-1 rounded-full transition-all duration-300 ${strength >= level ? STRENGTH_COLORS[strength] : 'bg-white/10'}`}
+                  className={`h-0.5 flex-1 rounded-full transition-all duration-400 ${
+                    strength >= level ? STRENGTH_COLORS[strength] : 'bg-white/[0.06]'
+                  }`}
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ delay: level * 0.03 }}
+                  style={{ transformOrigin: 'left' }}
                 />
               ))}
             </div>
             {strength > 0 && (
-              <p className="text-[10px] text-muted">{STRENGTH_LABELS[strength]}</p>
+              <p className={`text-[10px] font-medium ${STRENGTH_TEXT[strength]}`}>
+                {STRENGTH_LABELS[strength]}
+              </p>
             )}
-          </div>
+          </motion.div>
         )}
 
-        <button
+        {/* CTA button */}
+        <motion.button
           type="button"
-          className="w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-30 active:scale-[0.98]"
+          whileTap={{ scale: 0.97 }}
+          className="w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-30"
           onClick={() => { void createWallet(); }}
-          disabled={busy || password.length < 8}
+          disabled={!canSubmit}
         >
-          {busy ? 'Creating Wallet…' : 'Create Wallet'}
-        </button>
+          {busy ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="size-3.5 animate-spin rounded-full border-2 border-black/20 border-t-black" />
+              Creating Wallet…
+            </span>
+          ) : 'Create Wallet'}
+        </motion.button>
 
-        {/* Security note */}
-        <div className="flex items-start gap-2 rounded-xl border border-border bg-surface px-3.5 py-3">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="mt-0.5 size-3.5 shrink-0 text-muted" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          <p className="text-[10px] leading-relaxed text-muted">
-            A new Ethereum wallet will be generated and encrypted with your password. Back up your private key after setup.
-          </p>
+        {/* Feature list */}
+        <div className="mt-1 space-y-2 rounded-2xl border border-white/[0.05] bg-surface p-3.5">
+          {features.map(({ icon, text }) => (
+            <div key={text} className="flex items-start gap-2.5">
+              <span className="text-sm leading-none mt-0.5">{icon}</span>
+              <p className="text-[10px] leading-relaxed text-muted">{text}</p>
+            </div>
+          ))}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
-

@@ -12,7 +12,7 @@ const policySchema = z.object({
   agentAddress: addressSchema,
   maxLimitUSD: z.number().positive(),
   expiry: z.number().int().positive(),
-  allowedContracts: z.array(addressSchema).min(1),
+  allowedContracts: z.array(addressSchema).default([]),
 });
 
 export async function POST(request: Request): Promise<Response> {

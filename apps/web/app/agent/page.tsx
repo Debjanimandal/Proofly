@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { walletRequest } from '../../lib/wallet/provider';
 
 export default function AgentPolicyPage(): JSX.Element {
@@ -11,14 +11,28 @@ export default function AgentPolicyPage(): JSX.Element {
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Restore wallet address from prior session
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('proofly.session.address');
+      if (stored) setWalletAddress(stored);
+    } catch { /* ignore */ }
+  }, []);
+
   async function connectWallet(): Promise<void> {
     setError(null);
-
     try {
       const accounts = (await walletRequest('eth_requestAccounts', [])) as string[];
-      setWalletAddress(accounts[0] ?? '');
-    } catch (requestError) {
-      setError((requestError as Error).message);
+      const addr = accounts[0] ?? '';
+      setWalletAddress(addr);
+      if (addr) localStorage.setItem('proofly.session.address', addr);
+    } catch {
+      const stored = localStorage.getItem('proofly.session.address');
+      if (stored) {
+        setWalletAddress(stored);
+      } else {
+        setError('Extension not found. Visit the Wallet page to connect first.');
+      }
     }
   }
 

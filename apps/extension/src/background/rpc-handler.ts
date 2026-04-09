@@ -147,9 +147,26 @@ export async function routeRpcRequest(request: BridgeRpcRequest, context: RpcCon
   }
 
   switch (request.method) {
-    case 'eth_requestAccounts':
     case 'eth_accounts': {
+      // Silent — return current accounts without prompting.
       return walletAddress ? [walletAddress] : [];
+    }
+
+    case 'eth_requestAccounts': {
+      // Requires explicit user approval from the popup.
+      if (!walletAddress) return [];
+      const connectDecision = await context.requestApproval({
+        id: request.id,
+        origin: request.origin,
+        method: request.method,
+        params: request.params,
+        createdAt: Date.now(),
+        requiresHumanProof: false,
+      });
+      if (!connectDecision.approved) {
+        throw new RpcMethodError(4001, 'User rejected the connection request.');
+      }
+      return [walletAddress];
     }
 
     case 'eth_chainId': {
